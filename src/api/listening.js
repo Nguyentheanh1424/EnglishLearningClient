@@ -1,83 +1,70 @@
-import axios from './axios'
+import axios from './axios';
 
-export const getAllListeningExercises = async () => {
-    return axios.get('/api/listening/exercises')
-}
+// Lấy danh sách tất cả bài kiểm tra nghe
+export const getAllListeningTests = async () => {
+    return axios.get('/api/listening-tests');
+};
 
-export const getListeningExerciseById = async (id) => {
-    return axios.get(`/api/listening/exercises/${id}`)
-}
+// Lấy thông tin bài kiểm tra nghe theo ID
+export const getListeningTestById = async (id) => {
+    return axios.get(`/api/listening-tests/${id}`);
+};
 
-export const createListeningExercise = async (token, exerciseData) => {
-    return axios.post('/api/listening/exercises', exerciseData, {
-        headers: { Authorization: `Bearer ${token}` }
-    })
-}
+// Tạo mới bài kiểm tra nghe
+export const createListeningTest = async (testData) => {
+    return axios.post('/api/listening-tests', testData);
+};
 
-export const updateListeningExercise = async (token, id, exerciseData) => {
-    return axios.put(`/api/listening/exercises/${id}`, exerciseData, {
-        headers: { Authorization: `Bearer ${token}` }
-    })
-}
+// Cập nhật bài kiểm tra nghe
+export const updateListeningTest = async (id, testData) => {
+    return axios.put(`/api/listening-tests/${id}`, testData);
+};
 
-export const deleteListeningExercise = async (token, id) => {
-    return axios.delete(`/api/listening/exercises/${id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-    })
-}
+// Xóa bài kiểm tra nghe
+export const deleteListeningTest = async (id) => {
+    return axios.delete(`/api/listening-tests/${id}`);
+};
 
-export const getUserListeningProgress = async (token) => {
-    return axios.get('/api/listening/progress', {
-        headers: { Authorization: `Bearer ${token}` }
-    })
-}
+// === QUESTIONS MANAGEMENT ===
+// Lấy tất cả câu hỏi của bài kiểm tra nghe
+export const getListeningQuestionsByTestId = async (testId) => {
+    return axios.get(`/api/listening-tests/${testId}/questions`);
+};
 
-export const getListeningProgressById = async (token, id) => {
-    return axios.get(`/api/listening/progress/${id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-    })
-}
+// Tạo mới câu hỏi nghe
+export const createListeningQuestion = async (testId, questionData) => {
+    return axios.post(`/api/listening-tests/${testId}/questions`, questionData);
+};
 
-export const submitListeningAnswer = async (token, exerciseId, questionId, answerData) => {
-    return axios.post(`/api/listening/progress/${exerciseId}/questions/${questionId}/submit`, answerData, {
-        headers: { Authorization: `Bearer ${token}` }
-    })
-}
+// Cập nhật câu hỏi nghe
+export const updateListeningQuestion = async (testId, id, questionData) => {
+    return axios.put(`/api/listening-tests/${testId}/questions/${id}`, questionData);
+};
 
-export const getListeningQuestionById = async (id, mockTestId) => {
-    return axios.get(`/api/listening/questions/${id}`, {
-        params: { mockTestId }
-    })
-}
+// Xóa câu hỏi nghe
+export const deleteListeningQuestion = async (testId, id) => {
+    return axios.delete(`/api/listening-tests/${testId}/questions/${id}`);
+};
 
-export const getListeningQuestionsByMockTestId = async (mockTestId) => {
-    return axios.get('/api/listening/questions', {
-        params: { mockTestId }
-    })
-}
+// === USER TEST ATTEMPTS ===
+// Bắt đầu một lần thử bài kiểm tra
+export const startTestAttempt = async (userId, testId) => {
+    return axios.post('/api/user-test-attempts/start', { userId, testId });
+};
 
-export const createListeningQuestion = async (token, questionData) => {
-    return axios.post('/api/listening/questions', questionData, {
-        headers: { Authorization: `Bearer ${token}` }
-    })
-}
+// Gửi câu trả lời và hoàn thành bài kiểm tra
+export const submitAndCompleteTestAttempt = async (attemptId, userAnswers) => {
+    return axios.post(`/api/user-test-attempts/${attemptId}/submit-and-complete`, userAnswers);
+};
 
-export const updateListeningQuestion = async (token, id, questionData) => {
-    return axios.put(`/api/listening/questions/${id}`, questionData, {
-        headers: { Authorization: `Bearer ${token}` }
-    })
-}
+// Lấy danh sách các lần thử của người dùng
+export const getUserTestAttempts = async (userId, pageNumber = 1, pageSize = 10) => {
+    return axios.get(`/api/user-test-attempts/user/${userId}`, {
+        params: { pageNumber, pageSize }
+    });
+};
 
-export const deleteListeningQuestion = async (token, id, mockTestId) => {
-    return axios.delete(`/api/listening/questions/${id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-        params: { mockTestId }
-    })
-}
-
-export const submitListeningQuestionAnswer = async (token, id, mockTestId, answerData) => {
-    return axios.post(`/api/listening/questions/${id}/submit`, answerData, {
-        headers: { Authorization: `Bearer ${token}` },
-        params: { mockTestId }
-    })
-}
+// Lấy thông tin lần thử theo ID (if needed for results page)
+export const getTestAttemptById = async (id) => {
+    return axios.get(`/api/user-test-attempts/${id}`);
+};

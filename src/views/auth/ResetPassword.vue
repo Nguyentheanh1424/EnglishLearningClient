@@ -61,7 +61,7 @@
 <script>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { resetPassword } from '../api/auth'
+import { resetPassword } from '../../api/auth.js'
 
 export default {
   setup() {

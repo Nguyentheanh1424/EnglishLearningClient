@@ -37,8 +37,8 @@
 <script>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '../stores/auth'
-import { login } from '../api/auth'
+import { useAuthStore } from '../../stores/auth.js'
+import { login } from '../../api/auth.js'
 
 export default {
   setup() {
@@ -51,6 +51,7 @@ export default {
     const handleLogin = async () => {
       try {
         const response = await login(username.value, password.value)
+        console.log(response.data)
         authStore.setAuth({
           token: response.data.token,
           refreshToken: response.data.refreshToken,

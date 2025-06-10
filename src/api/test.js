@@ -11,52 +11,31 @@ export const getMockTestById = async (id) => {
 };
 
 // Tạo bài kiểm tra mới (Admin)
-export const createMockTest = async (token, testData) => {
-    return axios.post('/api/mocktests', testData, {
-        headers: { Authorization: `Bearer ${token}` },
-    });
+export const createMockTest = async (testData) => {
+    return axios.post('/api/mocktests', testData);
 };
 
 // Cập nhật bài kiểm tra (Admin)
-export const updateMockTest = async (token, id, testData) => {
-    return axios.put(`/api/mocktests/${id}`, testData, {
-        headers: { Authorization: `Bearer ${token}` },
-    });
+export const updateMockTest = async (id, testData) => {
+    return axios.put(`/api/mocktests/${id}`, testData);
 };
 
 // Xóa bài kiểm tra (Admin)
-export const deleteMockTest = async (token, id) => {
-    return axios.delete(`/api/mocktests/${id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-    });
+export const deleteMockTest = async (id) => {
+    return axios.delete(`/api/mocktests/${id}`);
 };
 
 // Nộp bài kiểm tra
-export const submitMockTest = async (token, id, answerData) => {
-    return axios.post(`/api/mocktests/${id}/submit`, answerData, {
-        headers: { Authorization: `Bearer ${token}` },
-    });
+export const submitMockTest = async (id, answerData) => {
+    return axios.post(`/api/mocktests/${id}/submit`, answerData);
 };
 
 // Lấy kết quả bài kiểm tra theo ID
-export const getTestResultById = async (token, id) => {
-    return axios.get(`/api/results/${id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-    });
+export const getTestResultById = async (id) => {
+    return axios.get(`/api/results/${id}`);
 };
 
 // Lấy lịch sử làm bài của người dùng
-export const getUserTestHistory = async (token, userId) => {
-    return axios.get('/api/results', {
-        headers: { Authorization: `Bearer ${token}` },
-        params: { userId },
-    });
-};
-
-// Lấy phân tích hiệu suất theo bài kiểm tra
-export const getPerformanceAnalysis = async (token, mockTestId) => {
-    return axios.get(`/api/performance-analyses`, {
-        headers: { Authorization: `Bearer ${token}` },
-        params: { mockTestId },
-    });
+export const getUserTestHistory = async () => {
+    return axios.get('/api/results');
 };

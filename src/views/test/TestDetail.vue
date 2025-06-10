@@ -6,7 +6,7 @@
         <h1 class="fs-4 fw-bold mb-0">{{ test?.title || 'Loading...' }}</h1>
         <div class="d-flex align-items-center gap-3">
           <div class="timer fs-6">
-            Thời gian còn lại: {{ formatTime(timeLeft) }}
+            Time Remaining: {{ formatTime(timeLeft) }}
             <span class="ms-3">Answered: {{ answeredCount }}/{{ totalQuestions }}</span>
           </div>
           <button
@@ -79,40 +79,42 @@
                 <h2 class="fs-5 fw-semibold">{{ subSection.title }}</h2>
 
                 <!-- Audio Player -->
-                <div class="audio-player d-flex align-items-center gap-3 mb-4">
+                <div v-if="activeTab === 'listening'" class="audio-player d-flex align-items-center gap-3 mb-4">
                   <audio
-                      ref="audioElement"
-                      :src="subSection.content"
-                      @loadedmetadata="onAudioLoaded"
-                      @timeupdate="updateAudioProgress"
-                      @ended="onAudioEnded"
-                      @error="onAudioError"
-                      preload="metadata"
+                      ref="audioRef"
+                      src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+                      @timeupdate="onTimeUpdate"
+                      @loadedmetadata="onLoadedMetadata"
+                      @ended="onEnded"
+                      @play="onPlay"
+                      @pause="onPause"
+                      @waiting="onWaiting"
+                      @canplay="onCanPlay"
+                      @error="onError"
+                      preload="auto"
                   ></audio>
 
                   <button
                       class="btn btn-primary btn-lg"
-                      @click="toggleAudio"
-                      :disabled="audioLoading"
-                      :aria-label="isPlaying ? 'Pause audio' : 'Play audio'"
+                      @click="togglePlay"
+                      :disabled="!isAudioReady || isLoading"
                   >
-                    <i v-if="audioLoading" class="fas fa-spinner fa-spin"></i>
+                    <i v-if="isLoading" class="fas fa-spinner fa-spin"></i>
                     <i v-else :class="isPlaying ? 'fas fa-pause' : 'fas fa-play'"></i>
                   </button>
 
                   <input
                       type="range"
                       class="form-range flex-grow-1"
-                      v-model="audioProgress"
-                      @input="seekAudio"
+                      :value="progress"
+                      @input="onSeek"
                       min="0"
                       max="100"
-                      :disabled="!audioDuration || audioLoading"
-                      aria-label="Audio seek bar"
+                      :disabled="!isAudioReady || isLoading"
                   />
 
                   <span class="fs-6 time-display">
-                    {{ audioCurrentTime }} / {{ audioDuration }}
+                    {{ currentTime }} / {{ duration }}
                   </span>
                 </div>
 
@@ -245,7 +247,7 @@
       <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">Xác nhận nộp bài</h5>
+            <h5 class="modal-title justify-content-center">Confirm Submission</h5>
             <button
                 type="button"
                 class="btn-close"
@@ -253,13 +255,13 @@
                 aria-label="Close"
             ></button>
           </div>
-          <div class="modal-body">
-            <p>Bạn có chắc chắn muốn nộp bài không?</p>
+          <div class="modal-body text-center">
+            <p>Are you sure you want to submit your answers?</p>
             <p v-if="unansweredCount > 0" class="text-warning">
               <i class="fas fa-exclamation-triangle"></i>
-              Bạn còn {{ unansweredCount }} câu chưa trả lời.
+              You still have {{ unansweredCount }} questions unanswered.
             </p>
-            <p class="text-muted">Thời gian còn lại: {{ formatTime(timeLeft) }}</p>
+            <p class="text-muted">Time remaining: {{ formatTime(timeLeft) }}</p>
           </div>
 
           <div class="modal-footer">
@@ -267,7 +269,7 @@
               Hủy
             </button>
             <button type="button" class="btn btn-primary" @click="confirmSubmit">
-              Nộp bài
+              Submit
             </button>
           </div>
         </div>
@@ -279,11 +281,9 @@
 <script>
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { getMockTestById, submitMockTest } from '../api/test';
+import { getMockTestById, submitMockTest } from '@/api/test.js';
 
-// Constants
-const TEST_DURATION = 90 * 60; // 90 minutes in seconds
-const AUDIO_UPDATE_THROTTLE = 100; // ms
+const TEST_DURATION = 45 * 60;
 
 export default {
   name: 'TestComponent',
@@ -293,8 +293,10 @@ export default {
     const testId = route.params.id;
 
     // Kiểm tra testId hợp lệ
-    if (typeof testId !== 'string' || !testId) {
+    if (!testId || typeof testId !== 'string') {
       console.error('Invalid testId:', testId);
+      router.push('/'); // Redirect to home if invalid testId
+      return;
     }
 
     // Reactive data
@@ -306,31 +308,39 @@ export default {
     const submitting = ref(false);
     const showConfirmModal = ref(false);
 
-    // Audio player state
-    const audioElement = ref(null);
+    // Audio states
+    const audioRef = ref(null);
     const isPlaying = ref(false);
-    const audioProgress = ref(0);
-    const audioCurrentTime = ref('00:00');
-    const audioDuration = ref('00:00');
-    const audioLoading = ref(false);
+    const isLoading = ref(false);
+    const isAudioReady = ref(false);
+    const currentTime = ref('00:00');
+    const duration = ref('00:00');
+    const progress = ref(0);
+    const audioError = ref(null);
 
     // Timer
     let timerInterval = null;
 
-    // Computed properties
-    const listeningSection = computed(() =>
-        test.value?.sections.find(section => section.skill === 'Listening')
-    );
+    // Text selection handling
+    const selectedText = ref('');
+    const selectedTextParts = ref(new Set());
 
-    const readingSection = computed(() =>
-        test.value?.sections.find(section => section.skill === 'Reading')
-    );
+    // Computed properties
+    const listeningSection = computed(() => {
+      if (!test.value?.sections) return null;
+      return test.value.sections.find(section => section.skill === 'Listening');
+    });
+
+    const readingSection = computed(() => {
+      if (!test.value?.sections) return null;
+      return test.value.sections.find(section => section.skill === 'Reading');
+    });
 
     const totalQuestions = computed(() => {
-      if (!test.value) return 0;
+      if (!test.value?.sections) return 0;
       return test.value.sections.reduce((total, section) => {
         return total + section.subSections.reduce((subTotal, subSection) => {
-          return subTotal + subSection.questions.length;
+          return subTotal + (subSection.questions?.length || 0);
         }, 0);
       }, 0);
     });
@@ -345,17 +355,22 @@ export default {
       return totalQuestions.value - answeredCount.value;
     });
 
-    // Helper functions
     const formatTime = (seconds) => {
-      if (!seconds || seconds < 0) return '00:00';
-      const min = Math.floor(seconds / 60);
-      const sec = seconds % 60;
-      return `${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+      const mins = Math.floor(seconds / 60);
+      const secs = Math.floor(seconds % 60);
+      return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     };
 
     const formatPassage = (content) => {
       if (!content) return '';
-      return content.replace(/\n/g, '<br>').replace(/\t/g, '    ');
+      // Sanitize HTML content to prevent XSS
+      const sanitizedContent = content
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      return sanitizedContent.replace(/\n/g, '<br>').replace(/\t/g, '    ');
     };
 
     const extractOptionValue = (option) => {
@@ -365,7 +380,7 @@ export default {
     };
 
     const getQuestionNumber = (subSection, qIndex) => {
-      if (!test.value) return qIndex + 1;
+      if (!test.value?.sections) return qIndex + 1;
 
       let questionNumber = 1;
       for (const section of test.value.sections) {
@@ -373,24 +388,26 @@ export default {
           if (subSec === subSection) {
             return questionNumber + qIndex;
           }
-          questionNumber += subSec.questions.length;
+          questionNumber += subSec.questions?.length || 0;
         }
       }
       return qIndex + 1;
     };
 
-    // API functions
     const fetchTest = async () => {
       try {
         error.value = '';
         const response = await getMockTestById(testId);
+        if (!response.data) {
+          throw new Error('Invalid response data');
+        }
         test.value = response.data;
         console.log('Fetched test:', test.value);
 
         // Initialize answers object
-        test.value.sections.forEach(section => {
-          section.subSections.forEach(subSection => {
-            subSection.questions.forEach(question => {
+        test.value.sections?.forEach(section => {
+          section.subSections?.forEach(subSection => {
+            subSection.questions?.forEach(question => {
               if (!(question.content in answers.value)) {
                 answers.value[question.content] = '';
               }
@@ -408,12 +425,13 @@ export default {
       if (timerInterval) clearInterval(timerInterval);
 
       timerInterval = setInterval(() => {
-        timeLeft.value--;
         if (timeLeft.value <= 0) {
           clearInterval(timerInterval);
           timeLeft.value = 0;
           autoSubmit();
+          return;
         }
+        timeLeft.value--;
       }, 1000);
     };
 
@@ -425,72 +443,103 @@ export default {
     };
 
     // Audio functions
-    const toggleAudio = async () => {
-      if (!audioElement.value || audioLoading.value) return;
+    const togglePlay = async () => {
+      if (!audioRef.value) {
+        console.warn('Audio element not found');
+        return;
+      }
 
       try {
-        audioLoading.value = true;
-
+        isLoading.value = true;
         if (isPlaying.value) {
-          audioElement.value.pause();
-          isPlaying.value = false;
+          await audioRef.value.pause();
         } else {
-          await audioElement.value.play();
-          isPlaying.value = true;
+          const playPromise = audioRef.value.play();
+          if (playPromise !== undefined) {
+            await playPromise;
+          }
         }
-      } catch (err) {
-        console.error('Audio playback error:', err);
-        error.value = 'Không thể phát audio. Vui lòng thử lại.';
-        isPlaying.value = false;
+      } catch (error) {
+        console.error('Error toggling play:', error);
+        audioError.value = 'Không thể phát audio. Vui lòng thử lại.';
       } finally {
-        audioLoading.value = false;
+        isLoading.value = false;
       }
     };
 
-    const seekAudio = () => {
-      if (!audioElement.value || !audioElement.value.duration) return;
-
+    const onSeek = (event) => {
+      if (!audioRef.value || !isAudioReady.value) return;
       try {
-        const newTime = (audioProgress.value / 100) * audioElement.value.duration;
-        audioElement.value.currentTime = newTime;
-      } catch (err) {
-        console.error('Audio seek error:', err);
+        const seekTime = (event.target.value / 100) * audioRef.value.duration;
+        audioRef.value.currentTime = seekTime;
+      } catch (error) {
+        console.error('Error seeking:', error);
       }
     };
 
-    const updateAudioProgress = () => {
-      if (!audioElement.value) return;
-
-      const current = audioElement.value.currentTime || 0;
-      const duration = audioElement.value.duration || 0;
-
-      if (duration > 0) {
-        audioProgress.value = (current / duration) * 100;
+    const onTimeUpdate = () => {
+      if (!audioRef.value) return;
+      try {
+        currentTime.value = formatTime(audioRef.value.currentTime);
+        progress.value = (audioRef.value.currentTime / audioRef.value.duration) * 100;
+      } catch (error) {
+        console.error('Error updating time:', error);
       }
-
-      audioCurrentTime.value = formatTime(Math.floor(current));
-      audioDuration.value = formatTime(Math.floor(duration));
     };
 
-    const onAudioLoaded = () => {
-      updateAudioProgress();
-      audioLoading.value = false;
+    const onLoadedMetadata = () => {
+      if (!audioRef.value) return;
+      try {
+        duration.value = formatTime(audioRef.value.duration);
+        isAudioReady.value = true;
+        audioError.value = null;
+      } catch (error) {
+        console.error('Error loading metadata:', error);
+      }
     };
 
-    const onAudioEnded = () => {
+    const onError = (error) => {
+      console.error('Audio error:', error);
+      audioError.value = 'Có lỗi xảy ra khi tải audio. Vui lòng thử lại.';
+      isLoading.value = false;
+      isAudioReady.value = false;
+    };
+
+    const onEnded = () => {
       isPlaying.value = false;
-      audioProgress.value = 100;
+      progress.value = 100;
     };
 
-    const onAudioError = (event) => {
-      console.error('Audio loading error:', event);
-      error.value = 'Không thể tải audio. Vui lòng kiểm tra kết nối mạng.';
-      audioLoading.value = false;
+    const onPlay = () => {
+      isPlaying.value = true;
+      audioError.value = null;
+    };
+
+    const onPause = () => {
       isPlaying.value = false;
     };
+
+    const onWaiting = () => {
+      isLoading.value = true;
+    };
+
+    const onCanPlay = () => {
+      isLoading.value = false;
+      isAudioReady.value = true;
+      audioError.value = null;
+    };
+
+    // Watch for tab changes
+    watch(activeTab, (newTab) => {
+      if (newTab !== 'listening' && audioRef.value && isPlaying.value) {
+        audioRef.value.pause();
+      }
+    });
 
     // Submit functions
     const submitTest = () => {
+      if (submitting.value) return;
+
       if (unansweredCount.value > 0) {
         showConfirmModal.value = true;
       } else {
@@ -505,52 +554,41 @@ export default {
       submitting.value = true;
       stopTimer();
 
-      const submitData = {
-        mockTestId: testId,
-        answers: Object.entries(answers.value)
-            .filter(([_, answer]) => answer !== null && answer !== undefined && answer !== '')
-            .map(([questionContent, answer]) => {
-              // Tìm questionId từ test.value
-              const question = test.value.sections
-                  .flatMap(section => section.subSections)
-                  .flatMap(subSection => subSection.questions)
-                  .find(q => q.content === questionContent);
-              return {
-                questionId: question?.id || questionContent,
-                answer: answer.toString().trim(),
-              };
-            }),
-        timeTaken: Math.min(TEST_DURATION - timeLeft.value, 2147483647),
-      };
-
       try {
         const token = localStorage.getItem('token');
         if (!token) {
           throw new Error('Không tìm thấy token. Vui lòng đăng nhập lại.');
         }
 
-        console.log('Submitting with:', {
-          token,
-          testId,
-          submitData: JSON.stringify(submitData, null, 2),
-        });
+        const submitData = {
+          mockTestId: testId,
+          answers: Object.entries(answers.value)
+              .filter(([_, answer]) => answer !== null && answer !== undefined && answer !== '')
+              .map(([questionContent, answer]) => {
+                const question = test.value.sections
+                    ?.flatMap(section => section.subSections)
+                    ?.flatMap(subSection => subSection.questions)
+                    ?.find(q => q.content === questionContent);
+                return {
+                  questionId: question?.id || questionContent,
+                  answer: answer.toString().trim(),
+                };
+              }),
+          timeTaken: Math.min(TEST_DURATION - timeLeft.value, 2147483647),
+        };
 
-        const response = await submitMockTest(token, testId, submitData);
+        const response = await submitMockTest(testId, submitData);
 
-        // Debug: Log toàn bộ response để kiểm tra structure
-        console.log('Full API response:', response);
-        console.log('Response data:', response.data);
+        if (!response?.data) {
+          throw new Error('Invalid response from server');
+        }
 
-        // Kiểm tra các field có thể chứa resultId
         const resultId = response.data?.resultId ||
             response.data?.id ||
             response.data?._id ||
             response.data?.result?.id ||
             response.data?.result?._id;
 
-        console.log('Extracted resultId:', resultId);
-
-        // Validate resultId trước khi sử dụng
         if (!resultId) {
           throw new Error('Không nhận được ID kết quả từ server');
         }
@@ -558,13 +596,12 @@ export default {
         // Validate ObjectId format (24 ký tự hex)
         const objectIdRegex = /^[0-9a-fA-F]{24}$/;
         if (!objectIdRegex.test(resultId)) {
-          console.error('Invalid ObjectId format:', resultId);
           throw new Error('ID kết quả không hợp lệ');
         }
 
         // Lưu vào localStorage
         localStorage.setItem('lastTestResult', JSON.stringify({
-          resultId: resultId,
+          resultId,
           testId,
           timestamp: Date.now(),
         }));
@@ -598,58 +635,75 @@ export default {
       }
     };
 
-    // Lifecycle hooks
-    onMounted(async () => {
-      console.log('testId in onMounted:', testId);
-      await fetchTest();
-      startTimer();
-
-      // Setup audio event listeners after DOM is ready
-      await nextTick();
-      if (audioElement.value && typeof audioElement.value.addEventListener === 'function') {
-        audioElement.value.addEventListener('loadedmetadata', onAudioLoaded);
-        audioElement.value.addEventListener('timeupdate', updateAudioProgress);
-        audioElement.value.addEventListener('ended', onAudioEnded);
-        audioElement.value.addEventListener('error', onAudioError);
-      } else {
-        console.error('audioElement is not valid:', audioElement.value);
+    // Text selection handling
+    const handleTextSelection = () => {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed) {
+        selectedText.value = '';
+        selectedTextParts.value.clear();
+        return;
       }
 
-      // Auto-save answers to localStorage
-      const saveAnswers = () => {
-        localStorage.setItem(`test-${testId}-answers`, JSON.stringify(answers.value));
-      };
+      const text = selection.toString().trim();
+      if (!text) {
+        selectedText.value = '';
+        selectedTextParts.value.clear();
+        return;
+      }
 
-      // Load saved answers
-      const savedAnswers = localStorage.getItem(`test-${testId}-answers`);
-      if (savedAnswers) {
-        try {
-          const parsed = JSON.parse(savedAnswers);
-          answers.value = { ...answers.value, ...parsed };
-        } catch (err) {
-          console.warn('Failed to load saved answers:', err);
+      selectedText.value = text;
+      const range = selection.getRangeAt(0);
+      const textParts = Array.from(document.querySelectorAll('.text-part'));
+      
+      textParts.forEach((part, index) => {
+        if (range.intersectsNode(part)) {
+          selectedTextParts.value.add(index);
         }
+      });
+    };
+
+    const isPartSelected = (index) => {
+      return selectedTextParts.value.has(index);
+    };
+
+    const selectTextPart = (index) => {
+      if (selectedTextParts.value.has(index)) {
+        selectedTextParts.value.delete(index);
+      } else {
+        selectedTextParts.value.add(index);
+      }
+      
+      // Update selected text
+      const textParts = Array.from(document.querySelectorAll('.text-part'));
+      selectedText.value = Array.from(selectedTextParts.value)
+        .map(i => textParts[i].textContent)
+        .join(' ');
+    };
+
+    // Update selectAnswer function
+    const selectAnswer = (questionId, answer) => {
+      if (!questionId || !answer) return;
+      
+      answers.value[questionId] = answer;
+      saveAnswers();
+    };
+
+    // Lifecycle hooks
+    onMounted(() => {
+      if (performance.getEntriesByType('navigation')[0]?.type === 'reload') {
+        localStorage.removeItem(`test-${testId}-answers`);
       }
 
-      // Watch for answer changes and auto-save
-      watch(answers, saveAnswers, { deep: true });
-
-      // Prevent accidental page leave
+      fetchTest();
+      startTimer();
       window.addEventListener('beforeunload', handleBeforeUnload);
     });
 
     onUnmounted(() => {
-      stopTimer();
-
-      if (audioElement.value && typeof audioElement.value.removeEventListener === 'function') {
-        audioElement.value.pause();
-        audioElement.value.removeEventListener('loadedmetadata', onAudioLoaded);
-        audioElement.value.removeEventListener('timeupdate', updateAudioProgress);
-        audioElement.value.removeEventListener('ended', onAudioEnded);
-        audioElement.value.removeEventListener('error', onAudioError);
+      if (audioRef.value && isPlaying.value) {
+        audioRef.value.pause();
       }
-
-      // Remove beforeunload listener
+      stopTimer();
       window.removeEventListener('beforeunload', handleBeforeUnload);
     });
 
@@ -672,12 +726,14 @@ export default {
       showConfirmModal,
 
       // Audio
-      audioElement,
+      audioRef,
       isPlaying,
-      audioProgress,
-      audioCurrentTime,
-      audioDuration,
-      audioLoading,
+      isLoading,
+      isAudioReady,
+      currentTime,
+      duration,
+      progress,
+      audioError,
 
       // Computed
       listeningSection,
@@ -691,24 +747,30 @@ export default {
       formatPassage,
       extractOptionValue,
       getQuestionNumber,
-      toggleAudio,
-      seekAudio,
+      togglePlay,
+      onSeek,
       submitTest,
       confirmSubmit,
+
+      // Text selection handling
+      selectedText,
+      selectedTextParts,
+      handleTextSelection,
+      isPartSelected,
+      selectTextPart,
+      selectAnswer,
     };
   },
 };
 </script>
 
 <style scoped>
-.dashboard-container {
-  min-height: calc(100vh - 80px);
-  background-color: #f8f9fa;
-  padding-top: 130px;
+.dashboard-container{
+  padding-top: 20px;
 }
 
 .header {
-  margin: 0 16px;
+  margin: 0 20px;
   border: none;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
 }
@@ -760,62 +822,36 @@ export default {
 }
 
 .audio-player {
-  max-width: 100%;
-  padding: 20px;
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  border: 1px solid #dee2e6;
+  background: #f8f9fa;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
-.audio-player .btn-lg {
-  width: 10px;
-  height: 60px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 12px rgba(0, 86, 210, 0.3);
-  transition: all 0.3s ease;
-}
-
-.audio-player .btn-lg:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(0, 86, 210, 0.4);
-}
-
-.audio-player .btn-lg:disabled {
-  opacity: 0.6;
-  transform: none;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.form-range {
-  height: 6px;
-  background-color: #e9ecef;
-  border-radius: 3px;
-}
-
-.form-range::-webkit-slider-thumb {
-  width: 20px;
-  height: 20px;
-  background-color: #0056d2;
-  border-radius: 50%;
-  box-shadow: 0 2px 6px rgba(0, 86, 210, 0.4);
-  transition: all 0.2s ease;
-}
-
-.form-range::-webkit-slider-thumb:hover {
-  transform: scale(1.2);
+.audio-player audio {
+  width: 100%;
+  height: 40px;
 }
 
 .time-display {
-  font-family: 'Courier New', monospace;
-  font-weight: 600;
-  color: #495057;
-  white-space: nowrap;
   min-width: 100px;
   text-align: center;
+  font-family: monospace;
+}
+
+.form-range {
+  height: 1.5rem;
+  padding: 0;
+}
+
+.form-range::-webkit-slider-thumb {
+  width: 1rem;
+  height: 1rem;
+}
+
+.form-range::-moz-range-thumb {
+  width: 1rem;
+  height: 1rem;
 }
 
 .passage-container {
@@ -1202,5 +1238,71 @@ export default {
 /* Smooth transitions */
 * {
   transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}
+
+.text-content {
+  line-height: 1.6;
+  margin-bottom: 1rem;
+  user-select: text;
+}
+
+.text-part {
+  display: inline-block;
+  padding: 0 2px;
+  cursor: pointer;
+  border-radius: 2px;
+  transition: background-color 0.2s;
+}
+
+.text-part:hover {
+  background-color: rgba(0, 86, 210, 0.1);
+}
+
+.text-part.selected {
+  background-color: rgba(0, 86, 210, 0.2);
+}
+
+.selected-text {
+  margin-top: 1rem;
+  padding: 0.5rem;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  color: #495057;
+}
+
+.fill-blank {
+  margin-bottom: 2rem;
+}
+
+.matching-questions {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.matching-pairs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.matching-item {
+  padding: 1rem;
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.matching-item:hover {
+  background-color: #e9ecef;
+}
+
+.matching-item.selected {
+  background-color: #0056d2;
+  color: white;
+  border-color: #0056d2;
 }
 </style>

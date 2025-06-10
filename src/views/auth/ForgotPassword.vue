@@ -30,7 +30,7 @@
 
 <script>
 import { ref } from 'vue'
-import { forgotPassword } from '../api/auth'
+import { forgotPassword } from '../../api/auth.js'
 
 export default {
   setup() {

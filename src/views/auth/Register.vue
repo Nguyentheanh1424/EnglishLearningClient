@@ -59,8 +59,8 @@
 <script>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '../stores/auth'
-import { register } from '../api/auth'
+import { useAuthStore } from '../../stores/auth.js'
+import { register } from '../../api/auth.js'
 
 export default {
   setup() {
